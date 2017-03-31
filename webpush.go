@@ -19,6 +19,8 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
+const defaultGCMEndpoint = "https://android.googleapis.com/gcm/send"
+
 var saltFunc = func() ([]byte, error) {
 	salt := make([]byte, 16)
 	_, err := io.ReadFull(rand.Reader, salt)
@@ -40,6 +42,7 @@ type Options struct {
 	Subscriber      string     // Sub in VAPID JWT token
 	TTL             int        // Set the TTL on the endpoint POST request
 	VAPIDPrivateKey string     // Used to sign VAPID JWT token
+	GCMApiKey       string
 }
 
 // Keys are the base64 encoded values from PushSubscription.getKey()
@@ -153,10 +156,19 @@ func SendNotification(message []byte, s *Subscription, options *Options) (*http.
 	req.Header.Set("Content-Encoding", "aesgcm")
 	req.Header.Set("TTL", strconv.Itoa(options.TTL))
 
-	// Set VAPID headers
-	err = vapid(req, s, options)
-	if err != nil {
-		return &http.Response{}, err
+	if isPushToGCM(s.Endpoint) {
+		if options.GCMApiKey != "" {
+			req.Header.Add("Authorization", fmt.Sprintf(`key=%s`, options.GCMApiKey))
+		} else {
+			fmt.Println("GCM API key is not init")
+		}
+	} else {
+		// Set VAPID headers
+		err = vapid(req, s, options)
+		if err != nil {
+			return &http.Response{}, err
+		}
+
 	}
 
 	// Send the request
@@ -173,6 +185,13 @@ func SendNotification(message []byte, s *Subscription, options *Options) (*http.
 	}
 
 	return resp, nil
+}
+
+func isPushToGCM(endpoint string) bool {
+	if strings.Contains(endpoint, "https://android.googleapis.com/gcm/send/") {
+		return true
+	}
+	return false
 }
 
 // Returns a key of length "length" given an hkdf function
